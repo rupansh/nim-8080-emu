@@ -598,30 +598,30 @@ proc disassemble8080(code: ptr uint8; pc: uint16): int =
   return opbytes
 
 
-proc parity(a: uint16, size: int): uint8 =
+proc parity(a: int, size: int): int =
     var i = 0
     var p = 0
-    var x: uint16 = (a and ((1 shl size)-1).uint16)
+    var x = (a and ((1 shl size)-1))
     while i<size:
-        if (x and 0x1) > 0.uint16: inc(p)
+        if (x and 0x1) > 0: inc(p)
         x = x shr 1
         inc(i)
     
-    return ((p and 0x1) == 0).uint8
+    return ((p and 0x1) == 0).int
 
 proc addHandle(aState: ref state, ansArg: uint16) =
     let answer = cast[uint16](aState[].a) + ansArg
     aState[].cc.z = ((answer and 0xff) == 0.uint16).uint8
     aState[].cc.s = ((answer and 0x80) != 0.uint16).uint8
     aState[].cc.cy = (answer > 0.uint16).uint8
-    aState[].cc.p = parity(answer and 0xff, 8)
+    aState[].cc.p = parity((answer and 0xff).int, 8).uint8
     aState[].a = (answer and 0xff).uint8
 
 proc incHandle(aState: ref state, ansArg: var uint8) =
     let answer = ansArg + 1
     aState[].cc.z = (answer == 0.uint8).uint8
     aState[].cc.s = ((answer and 0x80.uint8) == 0x80.uint8).uint8
-    aState[].cc.p = parity(answer, 8)
+    aState[].cc.p = parity(answer.int, 8).uint8
     ansArg = (answer).uint8
 
 proc inxHandle(reg1:var uint8, reg2: var uint8) =
@@ -642,14 +642,14 @@ proc subHandle(aState: ref state, ansArg: uint16) =
     aState[].cc.z = ((answer and 0xff.uint16) == 0.uint16).uint8
     aState[].cc.s = ((answer and 0x80.uint16) != 0.uint16).uint8
     aState[].cc.cy = (answer > 0.uint16).uint8
-    aState[].cc.p = parity(answer and 0xff.uint16, 8)
+    aState[].cc.p = parity((answer and 0xff).int, 8).uint8
     aState[].a = (answer and 0xff.uint16).uint8
 
 proc decHandle(aState: ref state, ansArg: var uint8) =
     let answer: uint8 = ansArg - 1
     aState[].cc.z = (answer == 0.uint8).uint8
-    aState[].cc.s = ((answer and 0x80.uint8) == 0x80.uint8).uint8
-    aState[].cc.p = parity(answer, 8)
+    aState[].cc.s = ((answer and 0x80) == 0x80).uint8
+    aState[].cc.p = parity(answer.int, 8).uint8
     ansArg = answer
 
 proc dcxHandle(reg1:var uint8, reg2: var uint8) =
@@ -661,7 +661,7 @@ proc jConditional(aState: ref state, condition: uint8, opcode: ptr uint8) =
     if (condition == 0.uint8):
         aState[].pc += 2
     else:
-        aState[].pc = ((opcode)[2] shl 8) or (opcode)[1]
+        aState[].pc = (opcode[2] shl 8) or opcode[1]
 
 proc callConditional(aState: ref state, condition: uint16, opcode: ptr uint8) =
     if (condition == 0.uint8):
@@ -671,7 +671,7 @@ proc callConditional(aState: ref state, condition: uint16, opcode: ptr uint8) =
         (aState[].mem)[(aState[].sp-1)] = ((ret shr 8) and 0xff).uint8
         (aState[].mem)[(aState[].sp-2)] = (ret and 0xff).uint8
         aState[].sp -= 2
-        aState[].pc = ((opcode)[2].uint16 shl 8) or (opcode)[1].uint16
+        aState[].pc = (opcode[2].uint16 shl 8) or opcode[1].uint16
 
 proc retConditional(aState: ref state, condition: uint16, opcode: ptr uint8) =
     if (condition == 0.uint8):
@@ -690,8 +690,8 @@ proc ldaxHandle(aState: ref state, reg1: uint8, reg2: uint8) =
     aState[].a = (aState[].mem)[offset].uint8
 
 proc lxiHandle(aState: ref state, reg1: var uint8, reg2: var uint8, opcode: ptr uint8) =
-    reg2 = (opcode)[1].uint8
-    reg1 = (opcode)[2].uint8
+    reg2 = opcode[1]
+    reg1 = opcode[2]
     aState[].pc += 2
 
 proc logicFlagsA(aState: ref state) =
@@ -699,7 +699,7 @@ proc logicFlagsA(aState: ref state) =
     aState[].cc.ac = 0
     aState[].cc.z = (aState[].a == 0).uint8
     aState[].cc.s = ((aState[].a and 0x80) == 0x80).uint8
-    aState[].cc.p = parity(aState[].a , 8)
+    aState[].cc.p = parity(aState[].a.int , 8).uint8
 
 proc errUinmplemented() =
     echo "Instruction Unimplemented!"
@@ -723,7 +723,7 @@ proc emulate8080(ourState: ref state): int =
     of 0x21: # LXI HL, data
         lxiHandle(ourState, ourState[].h, ourState[].l, opcode)
     of 0x31: # LXI SP, data
-        ourState[].sp = ((opcode)[2].uint8 shl 8) or (opcode)[1].uint8
+        ourState[].sp = (opcode[2] shl 8) or opcode[1]
         ourState[].pc += 2
 
     of 0x41: ourState[].b = ourState[].c # MOV B, C
@@ -731,27 +731,29 @@ proc emulate8080(ourState: ref state): int =
     of 0x43: ourState[].b = ourState[].e # MOV B, E
     of 0x46: # MOV B, Mem
         let offset: uint16 = (ourState[].h shl 8) or (ourState[].l)
-        ourState[].b = (ourState[].mem)[offset].uint8
+        ourState[].b = ourState[].mem[offset].uint8
     of 0x56: # MOV D, Mem
         let offset: uint16 = (ourState[].h shl 8) or (ourState[].l)
-        ourState[].d = (ourState[].mem)[offset].uint8
+        ourState[].d = ourState[].mem[offset].uint8
     of 0x5e: # MOV E, Mem
         let offset: uint16 = (ourState[].h shl 8) or (ourState[].l)
-        ourState[].e = (ourState[].mem)[offset].uint8
+        ourState[].e = ourState[].mem[offset].uint8
     of 0x66: # MOV H, Mem
         let offset: uint16 = (ourState[].h shl 8) or (ourState[].l)
-        ourState[].h = (ourState[].mem)[offset].uint8
+        ourState[].h = ourState[].mem[offset].uint8
     of 0x6f: ourState[].l = ourState[].a # MOV L, A
     of 0x77: # MOV Mem, A
         let offset: uint16 = (ourState[].h shl 8) or (ourState[].l)
-        (ourState[].mem)[offset] = ourState[].a
+        ourState[].mem[offset] = ourState[].a
+    of 0x79: ourState[].a = ourState[].c # MOV A, C
     of 0x7A: ourState[].a = ourState[].d # MOV A, D
     of 0x7B: ourState[].a = ourState[].e # MOV A, E
     of 0x7C: ourState[].a = ourState[].h # MOV A, H
     of 0x7E: # MOV A, Mem
         let offset: uint16 = (ourState[].h shl 8) or (ourState[].l)
-        ourState[].a = (ourState[].mem)[offset].uint8
+        ourState[].a = ourState[].mem[offset].uint8
     of 0x4F: ourState[].c = ourState[].a # MOV C, A
+    of 0x67: ourState[].h = ourState[].a # MOV H, A
 
     of 0xA7: # ANA A
         ourState[].a = ourState[].a and ourState[].a
@@ -761,6 +763,10 @@ proc emulate8080(ourState: ref state): int =
             ourState[].a = 1
         else:
             ourState[].a = 0
+        logicFlagsA(ourState)
+    of 0xB0: # ORA B
+      ourState[].a = ourState[].a or ourState[].b
+      logicFlagsA(ourState)
 
     of 0xd3: # OUT Data
         inc(ourState[].pc)
@@ -784,8 +790,8 @@ proc emulate8080(ourState: ref state): int =
     of 0x87: # Add A
         addHandle(ourState, cast[uint16](ourState[].a))
     of 0x86: # ADD Mem
-        let offset: uint8 = (ourState[].h shl 8) or (ourState[].l)
-        let memArg = (ourState[].mem)[offset]
+        let offset: uint16 = (ourState[].h shl 8) or (ourState[].l)
+        let memArg = ourState[].mem[offset]
         addHandle(ourState, memArg.uint16)
 
     of 0x88: # ADC B
@@ -807,8 +813,8 @@ proc emulate8080(ourState: ref state): int =
         let addCarr = cast[uint16](ourState[].l) + ourState[].cc.cy
         addHandle(ourState, addCarr)
     of 0x8E: # ADC Mem
-        let offset: uint8 = (ourState[].h shl 8) or (ourState[].l)
-        let addCarr = (ourState[].mem)[offset].uint16 + ourState[].cc.cy
+        let offset: uint16 = (ourState[].h shl 8) or (ourState[].l)
+        let addCarr = ourState[].mem[offset].uint16 + ourState[].cc.cy
         addHandle(ourState, addCarr)
     of 0x8F: # ADC A
         let addCarr = cast[uint16](ourState[].a) + ourState[].cc.cy
@@ -829,8 +835,8 @@ proc emulate8080(ourState: ref state): int =
     of 0x97: # SUB A
         subHandle(ourState, cast[uint16](ourState[].a))
     of 0x96: # SUB Mem
-        let offset: uint8 = (ourState[].h shl 8) or (ourState[].l)
-        let memArg = (ourState[].mem)[offset]
+        let offset: uint16 = (ourState[].h shl 8) or (ourState[].l)
+        let memArg = ourState[].mem[offset]
         addHandle(ourState, memArg.uint16)
 
     of 0x98: # SBB B
@@ -852,8 +858,8 @@ proc emulate8080(ourState: ref state): int =
         let subCarr = cast[uint16](ourState[].l) - ourState[].cc.cy
         subHandle(ourState, subCarr)
     of 0x9E: # SBB Mem
-        let offset: uint8 = (ourState[].h shl 8) or (ourState[].l)
-        let subCarr = (ourState[].mem)[offset].uint16 - ourState[].cc.cy
+        let offset: uint16 = (ourState[].h shl 8) or (ourState[].l)
+        let subCarr = ourState[].mem[offset] - ourState[].cc.cy
         subHandle(ourState, subCarr)
     of 0x9F: # SBB A
         let subCarr = cast[uint16](ourState[].a) - ourState[].cc.cy
@@ -864,16 +870,16 @@ proc emulate8080(ourState: ref state): int =
         ourState[].cc.z = ((answer and 0xff) == 0.uint16).uint8
         ourState[].cc.s = ((answer and 0x80) == 0x80.uint16).uint8
         ourState[].cc.cy = (answer > 0.uint16).uint8
-        ourState[].cc.p = parity(answer and 0xff, 8)
+        ourState[].cc.p = parity((answer and 0xff).int, 8).uint8
         ourState[].a = (answer and 0xff).uint8
     of 0xCE: # ACI data
-        let addCarr = (opcode)[1].uint16 + ourState[].cc.cy
+        let addCarr = opcode[1].uint16 + ourState[].cc.cy
         addHandle(ourState, addCarr)
 
     of 0xD6: # SUI data
-        subHandle(ourState, (opcode)[1].uint16)
+        subHandle(ourState, opcode[1].uint16)
     of 0xDE: # SBI data
-        let subCarr = (opcode)[1].uint16 - ourState[].cc.cy
+        let subCarr = opcode[1].uint16 - ourState[].cc.cy
         subHandle(ourState, subCarr)
 
     of 0x04: # INR B
@@ -891,8 +897,8 @@ proc emulate8080(ourState: ref state): int =
     of 0x3c: # INR A
         incHandle(ourState, ourState[].a)
     of 0x34: # INR Mem
-        let offset: uint8 = (ourState[].h shl 8) or (ourState[].l)
-        incHandle(ourState, (ourState[].mem)[offset])
+        let offset: uint16 = (ourState[].h shl 8) or (ourState[].l)
+        incHandle(ourState, ourState[].mem[offset])
 
     of 0x05: # DCR B
         decHandle(ourState, ourState[].b)
@@ -909,8 +915,8 @@ proc emulate8080(ourState: ref state): int =
     of 0x3d: # DCR A
         decHandle(ourState, ourState[].a)
     of 0x35: # DCR Mem
-        let offset: uint8 = (ourState[].h shl 8) or (ourState[].l)
-        decHandle(ourState, (ourState[].mem)[offset])
+        let offset: uint16 = (ourState[].h shl 8) or (ourState[].l)
+        decHandle(ourState, ourState[].mem[offset])
 
     of 0xCA: # JZ addr
         jConditional(ourState, ourState[].cc.z, opcode)
@@ -929,7 +935,7 @@ proc emulate8080(ourState: ref state): int =
     of 0xF2: # JP addr
         jConditional(ourState, (not ourState[].cc.s), opcode)
     of 0xC3: # JMP addr
-        ourState[].pc = ((opcode)[2] shl 8) or (opcode)[1]
+        ourState[].pc = (opcode[2] shl 8) or opcode[1]
 
     of 0xCC: # CZ addr
         callConditional(ourState, ourState[].cc.z, opcode)
@@ -949,10 +955,10 @@ proc emulate8080(ourState: ref state): int =
         callConditional(ourState, (not ourState[].cc.s), opcode)
     of 0xCD: # CALL addr
         var ret = ourState[].pc+2
-        (ourState[].mem)[(ourState[].sp-1)] = ((ret shr 8) and 0xff).uint8
-        (ourState[].mem)[(ourState[].sp-2)] = (ret and 0xff).uint8
+        ourState[].mem[ourState[].sp-1] = ((ret shr 8) and 0xff).uint8
+        ourState[].mem[ourState[].sp-2] = (ret and 0xff).uint8
         ourState[].sp -= 2
-        ourState[].pc = ((opcode)[2].uint16 shl 8) or (opcode)[1].uint16
+        ourState[].pc = (opcode[2].uint16 shl 8) or opcode[1].uint16
 
     of 0xC8: # RZ
         retConditional(ourState, ourState[].cc.z, opcode)
@@ -971,19 +977,15 @@ proc emulate8080(ourState: ref state): int =
     of 0xF0: # RP
         retConditional(ourState, (not ourState[].cc.s), opcode)
     of 0xc9: # RET
-        ourState[].pc = ((ourState[].mem)[ourState[].sp]).uint8 or (((ourState[].mem)[(ourState[].sp+1)]).uint8 shl 8)
+        ourState[].pc = ourState[].mem[ourState[].sp] or (ourState[].mem[ourState[].sp+1] shl 8)
         ourState[].sp += 2
 
     of 0x2A: # CMA (not)
         ourState[].a = not ourState[].a
 
     of 0xe6: # ANI byte
-        let x: uint8 = ourState[].a and (opcode)[1].uint8
-        ourState[].cc.z = (x == 0).uint8
-        ourState[].cc.s = ((x and 0x80.uint8) == 0x80).uint8
-        ourState[].cc.p = parity(x, 8)
-        ourState[].cc.cy = 0
-        ourState[].a = x
+        ourState[].a = ourState[].a and opcode[1]
+        logicFlagsA(ourState)
         ourState[].pc += 1
     
     of 0x0F: # RRC
@@ -1010,16 +1012,16 @@ proc emulate8080(ourState: ref state): int =
     of 0xBF: # CMP A
         cmpHandle(ourState, cast[uint16](ourState[].a))
     of 0xBE: # CMP Mem
-        let offset: uint8 = (ourState[].h shl 8) or (ourState[].l)
-        let memArg = (ourState[].mem)[offset]
+        let offset: uint16 = (ourState[].h shl 8) or (ourState[].l)
+        let memArg = ourState[].mem[offset]
         cmpHandle(ourState, memArg.uint16)
 
     of 0xFE: # CPI byte
-        let x = ourState[].a - (opcode)[1].uint8
+        let x: uint8 = ourState[].a - opcode[1]
         ourState[].cc.z = (x == 0).uint8
-        ourState[].cc.s = ((x and 0x80) == 0x80.uint8).uint8
-        ourState[].cc.p = parity(x, 8)
-        ourState[].cc.cy = (ourState[].a < (opcode)[1].uint8).uint8
+        ourState[].cc.s = ((x and 0x80) == 0x80).uint8
+        ourState[].cc.p = parity(x.int, 8).uint8
+        ourState[].cc.cy = (ourState[].a < opcode[1]).uint8
         ourState[].pc += 1
 
     of 0x3F: # CMC
@@ -1031,20 +1033,20 @@ proc emulate8080(ourState: ref state): int =
         quit(0)
     
     of 0xC1: # POP BC
-        ourState[].c = (ourState[].mem)[ourState[].sp].uint8
-        ourState[].b = (ourState[].mem)[(ourState[].sp+1)].uint8
+        ourState[].c = ourState[].mem[ourState[].sp]
+        ourState[].b = ourState[].mem[ourState[].sp+1]
         ourState[].sp += 2
     of 0xD1: # POP DE
-        ourState[].e = (ourState[].mem)[ourState[].sp].uint8
-        ourState[].d = (ourState[].mem)[(ourState[].sp+1)].uint8
+        ourState[].e = ourState[].mem[ourState[].sp]
+        ourState[].d = ourState[].mem[ourState[].sp+1]
         ourState[].sp += 2
     of 0xE1: # POP HL
-        ourState[].l = (ourState[].mem)[ourState[].sp].uint8
-        ourState[].h = (ourState[].mem)[(ourState[].sp+1)].uint8
+        ourState[].l = ourState[].mem[ourState[].sp]
+        ourState[].h = ourState[].mem[ourState[].sp+1]
         ourState[].sp += 2
     of 0xf1: # POP PSW
-        ourState[].a = (ourState[].mem)[(ourState[].sp+1)].uint8
-        let psw: uint8 = (ourState[].mem)[ourState[].sp].uint8
+        ourState[].a = ourState[].mem[ourState[].sp+1]
+        let psw: uint8 = ourState[].mem[ourState[].sp]
         ourState[].cc.z = ((psw and 0x01) == 0x01).uint8
         ourState[].cc.s = ((psw and 0x02) == 0x02).uint8
         ourState[].cc.p = ((psw and 0x04) == 0x04).uint8
@@ -1053,54 +1055,54 @@ proc emulate8080(ourState: ref state): int =
         ourState[].sp += 2
 
     of 0xC5: # PUSH BC
-        (ourState[].mem)[(ourState[].sp-1)] = ourState[].b
-        (ourState[].mem)[(ourState[].sp-2)] = ourState[].c
+        ourState[].mem[ourState[].sp-1] = ourState[].b
+        ourState[].mem[ourState[].sp-2] = ourState[].c
         ourState[].sp -= 2
     of 0xD5: # PUSH DE
-        (ourState[].mem)[(ourState[].sp-1)] = ourState[].d
-        (ourState[].mem)[(ourState[].sp-2)] = ourState[].e
+        ourState[].mem[ourState[].sp-1] = ourState[].d
+        ourState[].mem[ourState[].sp-2] = ourState[].e
         ourState[].sp -= 2
     of 0xE5: # PUSH HL
-        (ourState[].mem)[(ourState[].sp-1)] = ourState[].h
-        (ourState[].mem)[(ourState[].sp-2)] = ourState[].l
+        ourState[].mem[ourState[].sp-1] = ourState[].h
+        ourState[].mem[ourState[].sp-2] = ourState[].l
         ourState[].sp -= 2
     of 0xF5: # PUSH PSW
-        (ourState[].mem)[(ourState[].sp-1)] = ourState[].a
+        ourState[].mem[ourState[].sp-1] = ourState[].a
         let psw: uint8 = (ourState[].cc.z or
            ourState[].cc.s shl 1 or
            ourState[].cc.p shl 2 or 
            ourState[].cc.cy shl 3 or
            ourState[].cc.ac shl 4)
-        (ourState[].mem)[(ourState[].sp-2)] = psw
+        ourState[].mem[ourState[].sp-2] = psw
         ourState[].sp -= 2
 
     of 0xf9: # SPHL
         ourState[].sp = (ourState[].h shl 8) or (ourState[].l)
     
     of 0x06: # MVI B, data
-        ourState[].b = (opcode)[1]
+        ourState[].b = opcode[1]
         ourState[].pc += 1
     of 0x0e: # MVI C, data
-        ourState[].c = (opcode)[1]
+        ourState[].c = opcode[1]
         ourState[].pc += 1
     of 0x16: # MVI D, data
-        ourState[].d = (opcode)[1]
+        ourState[].d = opcode[1]
         ourState[].pc += 1
     of 0x1e: # MVI E, data
-        ourState[].e = (opcode)[1]
+        ourState[].e = opcode[1]
         ourState[].pc += 1
     of 0x26: # MVI H, data
-        ourState[].h = (opcode)[1]
+        ourState[].h = opcode[1]
         ourState[].pc += 1
     of 0x2e: # MVI L, data
-        ourState[].l = (opcode)[1]
+        ourState[].l = opcode[1]
         ourState[].pc += 1
     of 0x36: # MVI Mem, data
-        let offset: uint8 = (ourState[].h shl 8) or (ourState[].l)
-        (ourState[].mem)[offset] = (opcode)[1]
+        let offset: uint16 = (ourState[].h shl 8) or (ourState[].l)
+        ourState[].mem[offset] = opcode[1]
         ourState[].pc += 1
     of 0x3e: # MVI A, data
-        ourState[].a = (opcode)[1].uint8
+        ourState[].a = opcode[1]
         ourState[].pc += 1
 
     of 0x09: # DAD BC
@@ -1129,17 +1131,17 @@ proc emulate8080(ourState: ref state): int =
         ldaxHandle(ourState, ourState[].d, ourState[].e)
 
     of 0x22: # SHLD addr
-        let offset = ((opcode)[2] shl 8) or (opcode)[1]
-        (ourState[].mem)[offset] = ourState[].l
-        (ourState[].mem)[offset+1] = ourState[].h
+        let offset: uint16 = (opcode[2] shl 8) or opcode[1]
+        ourState[].mem[offset] = ourState[].l
+        ourState[].mem[offset+1] = ourState[].h
         ourState[].pc += 2
     of 0x32: # STA addr
-        let offset = ((opcode)[2] shl 8) or (opcode)[1]
-        (ourState[].mem)[offset] = ourState[].a
+        let offset: uint16 = (opcode[2] shl 8) or opcode[1]
+        ourState[].mem[offset] = ourState[].a
         ourState[].pc += 2
     of 0x3a: # LDA addr
-        let offset = ((opcode)[2] shl 8) or (opcode)[1]
-        ourState[].a = (ourState[].mem)[offset]
+        let offset: uint16 = (opcode[2] shl 8) or opcode[1]
+        ourState[].a = ourState[].mem[offset]
         ourState[].pc += 2
     
     of 0xEB: # XCHG
@@ -1166,11 +1168,10 @@ proc emulate8080(ourState: ref state): int =
         PCHL - Dunno how to assign to PCH and PCL
         IO/Special Groups - Not at that stage
         XTHL - useless
-        ORA - I wanna sleep
     ]#
 
 # to do, borked
-proc readToMem(ourState: ref state, filename: string, offset: int) =
+proc readToMem(ourState: ref state, filename: string, offset: uint16) =
     var data = filename.readFile
     copyMem addr ourState.mem[offset], addr data[0], data.len
 # to do
@@ -1179,10 +1180,7 @@ proc main() =
     var ourState = new(ref state)
     ourState[].mem = newSeq[uint8](0x10000)
 
-    readToMem(ourState, "rom/invaders.h", 0)
-    readToMem(ourState, "rom/invaders.g", 0x800)
-    readToMem(ourState, "rom/invaders.f", 0x1000)
-    readToMem(ourState, "rom/invaders.e", 0x1800)
+    readToMem(ourState, "rom/invaders.rom", 0)
 
     while done == 0:
         done = emulate8080(ourState)
