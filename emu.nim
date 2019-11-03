@@ -3,10 +3,12 @@ Copyright (c) Rupansh Sekar. All rights reserved.
 Licensed under the MIT license. See LICENSE file in the project root for details.
 ]#
 
+import sdl2/sdl
 import streams
+import threadpool
 
 type
-  conditionCodes* {.bycopy.} = object
+  conditionCodes* = object
     z* {.bitsize: 1.}: uint8
     s* {.bitsize: 1.}: uint8
     p* {.bitsize: 1.}: uint8
@@ -14,7 +16,7 @@ type
     ac* {.bitsize: 1.}: uint8 # unused for space invaders
     pad* {.bitsize: 3.}: uint8
 
-  state* {.bycopy.} = object
+  state* = object
     a*: uint8
     b*: uint8
     c*: uint8
@@ -28,6 +30,9 @@ type
     cc*: conditionCodes
     intEnable*: uint8
 
+proc `$`(x: byte): string =
+    $x.int
+
 
 proc disassemble8080(code: seq[byte]; pc: uint16): int =
   var opbytes: int = 1
@@ -36,7 +41,7 @@ proc disassemble8080(code: seq[byte]; pc: uint16): int =
   of 0x00:
     echo("NOP")
   of 0x01:
-    echo("LXI    B," & $code[pc + 2] & $code[pc + 1])
+    echo("LXI    B," & $code[pc + 2].int & $code[pc + 1].int)
     opbytes = 3
   of 0x02:
     echo("STAX   B")
@@ -45,9 +50,9 @@ proc disassemble8080(code: seq[byte]; pc: uint16): int =
   of 0x04:
     echo("INR    B")
   of 0x05:
-    echo("DCR    B")
+    echo("DCR   B=" & $code[pc+1].int)
   of 0x06:
-    echo("MVI    B," & $code[pc + 1])
+    echo("MVI    B," & $code[pc + 1].int)
     opbytes = 2
   of 0x07:
     echo("RLC")
@@ -64,14 +69,14 @@ proc disassemble8080(code: seq[byte]; pc: uint16): int =
   of 0x0D:
     echo("DCR    C")
   of 0x0E:
-    echo("MVI    C," & $code[pc + 1])
+    echo("MVI    C," & $code[pc + 1].int)
     opbytes = 2
   of 0x0F:
     echo("RRC")
   of 0x10:
     echo("NOP")
   of 0x11:
-    echo("LXI    D," & $code[pc + 2] & $code[pc + 1])
+    echo("LXI    D," & $code[pc + 2].int & $code[pc + 1].int)
     opbytes = 3
   of 0x12:
     echo("STAX   D")
@@ -82,7 +87,7 @@ proc disassemble8080(code: seq[byte]; pc: uint16): int =
   of 0x15:
     echo("DCR    D")
   of 0x16:
-    echo("MVI    D" & $code[pc + 1])
+    echo("MVI    D" & $code[pc + 1].int)
     opbytes = 2
   of 0x17:
     echo("RAL")
@@ -99,7 +104,7 @@ proc disassemble8080(code: seq[byte]; pc: uint16): int =
   of 0x1D:
     echo("DCR    E")
   of 0x1E:
-    echo("MVI    E" & $code[pc + 1])
+    echo("MVI    E" & $code[pc + 1].int)
     opbytes = 2
   of 0x1F:
     echo("RAR")
@@ -645,25 +650,33 @@ proc subHandle(aState: var state, ansArg: uint16) =
     aState.a = (answer and 0xff.uint16).uint8
 
 proc decHandle(aState: var state, ansArg: var uint8) =
-    let answer: uint8 = ansArg - 1
+    let answer = ansArg - 1.uint8
     aState.cc.z = (answer == 0.uint8).uint8
     aState.cc.s = ((answer and 0x80) == 0x80).uint8
     aState.cc.p = parity(answer.int, 8).uint8
     ansArg = answer
+    echo(answer.int)
+    echo(ansArg.int)
 
 proc dcxHandle(reg1:var uint8, reg2: var uint8) =
-    reg2 -= 1
+    if reg2 == 0:
+        reg2 = 255
+    else:
+        reg2 -= 1
     if (reg2 == 0):
-        reg1 -= 1
+        if reg1 == 0:
+            reg1 = 255
+        else:
+            reg1 -= 1
 
 proc jConditional(aState: var state, condition: uint8, opcode: var seq[byte]) =
-    if (condition == 0.uint8):
+    if (condition == 254.uint8):
         aState.pc += 3
     else:
         aState.pc = (opcode[aState.pc + 2].uint16 shl 8) or opcode[aState.pc + 1]
 
 proc callConditional(aState: var state, condition: uint16, opcode: var seq[byte]) =
-    if (condition == 0.uint8):
+    if (condition == 254.uint8):
         aState.pc += 3
     else:
         var ret = aState.pc+2
@@ -673,7 +686,7 @@ proc callConditional(aState: var state, condition: uint16, opcode: var seq[byte]
         aState.pc = (opcode[aState.pc + 2].uint16 shl 8) or opcode[aState.pc + 1].uint16
 
 proc retConditional(aState: var state, condition: uint16, opcode: var seq[byte]) =
-    if (condition == 0.uint8):
+    if (condition == 254.uint8):
         aState.pc += 3
     else:
         aState.pc = ((aState.mem)[aState.sp]).uint16 or ((aState.mem)[(aState.sp+1)].uint16 shl 8)
@@ -919,6 +932,8 @@ proc emulate8080(ourState: var state): int =
     of 0xCA: # JZ addr
         jConditional(ourState, ourState.cc.z, opcode)
     of 0xC2: # JNZ addr
+        echo(ourState.cc.z.int)
+        echo((not ourState.cc.z).int)
         jConditional(ourState, (not ourState.cc.z), opcode)
     of 0xDA: # JC addr
         jConditional(ourState, ourState.cc.cy, opcode)
@@ -1170,22 +1185,84 @@ proc emulate8080(ourState: var state): int =
         XTHL - useless
     ]#
 
-# to do, borked
+# to do
 proc readToMem(ourState: var state, filename: string, offset: uint16) =
     var data = filename.readFile
     copyMem addr ourState.mem[offset], addr data[0], data.len
+
+proc renderTop(renderer: Renderer, curState: state) =
+    var y = 0
+    discard setRenderDrawColor(renderer, 255, 0, 0, 255)
+    for i in 32..17:
+        for bit in 7..0:
+            var x = 0
+            for j in 2400..2623:
+                let index = i + (j*31)
+                if (curState.mem[index] and (1 shl bit)) != 0:
+                    discard renderDrawPoint(renderer, x, y)
+            x += 1
+        y += 1
+    
+    renderPresent(renderer)
+
+
+proc renderBot(renderer: Renderer, curState: state) =
+    var y = 128
+    discard setRenderDrawColor(renderer, 255, 0, 0, 255)
+    for i in 16..0:
+        for bit in 7..0:
+            var x = 0
+            for j in 2400..2623:
+                let index = i + (j*31)
+                if (curState.mem[index] and (1 shl bit)) != 0:
+                    discard renderDrawPoint(renderer, x, y)
+            x += 1
+        y += 1
+    
+    renderPresent(renderer)
+
+
+proc render(renderer: Renderer, curState: state) =
+    while true:
+        discard setRenderDrawColor(renderer, 0, 0, 0, 0)
+        discard renderClear(renderer)
+        renderTop(renderer, curState)
+        renderBot(renderer, curState)
 # to do
 proc main() =
     var done = 0
+    var count = 0
     var ourState = state(a: 0, b: 0, c: 0, d: 0, e: 0, h: 0, l: 0, sp: 0xf000, pc: 0, intEnable: 0)
     ourState.mem = newSeq[byte](0x10000)
 
     readToMem(ourState, "rom/invaders.rom", 0)
 
+    var event: Event
+    var window: Window
+    var renderer: Renderer
+    discard init(INIT_VIDEO)
+    discard createWindowAndRenderer(224*3, 256*3, 0, addr window, addr renderer)
+    discard renderSetLogicalSize(renderer, 224, 256)
+    discard setRenderDrawColor(renderer, 255, 0, 0, 255)
+    renderPresent(renderer)
+
     while done == 0:
-        var currPc = ourState.pc
-        done = emulate8080(ourState)
-        if ourState.pc == currPc:
-            ourState.pc += 1
+        if (pollEvent(addr event)) > 0:
+            if event.kind == QUIT:
+                break
+        count += 1
+        #if count == 500000:
+           # spawn render(renderer, ourState)
+
+        if count >= 500000 and count mod 1000 == 0:
+
+            var currPc = ourState.pc
+            done = emulate8080(ourState)
+            if ourState.pc == currPc:
+                ourState.pc += 1
+
+    destroyRenderer(renderer)
+    destroyWindow(window)
+    sdl.quit()
 
 main()
